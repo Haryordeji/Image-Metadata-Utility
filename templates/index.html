@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Metadata Viewer/Editor</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #4a90e2;
+            --secondary-color: #50e3c2;
+            --background-color: #f5f7fa;
+            --text-color: #333;
+            --border-radius: 8px;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            background-color: var(--background-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 800px;
+            width: 100%;
+            background-color: white;
+            border-radius: var(--border-radius);
+            padding: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: var(--primary-color);
+            margin-bottom: 1.5rem;
+            text-align: center;
+            font-weight: 300;
+        }
+
+        .upload-section {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        #file-input {
+            display: none;
+        }
+
+        .custom-file-upload, #remove-exif {
+            padding: 0.75rem 1.25rem;
+            cursor: pointer;
+            border-radius: var(--border-radius);
+            transition: all 0.3s ease;
+            font-size: 0.9rem;
+            border: none;
+        }
+
+        .custom-file-upload {
+            background-color: var(--primary-color);
+            color: white;
+        }
+
+        .custom-file-upload:hover {
+            background-color: #3a7dca;
+        }
+
+        #remove-exif {
+            background-color: var(--secondary-color);
+            color: var(--text-color);
+        }
+
+        #remove-exif:hover {
+            background-color: #3fcfae;
+        }
+
+        #loading {
+            display: none;
+            text-align: center;
+            margin-bottom: 1rem;
+            color: var(--primary-color);
+        }
+
+        #image-display {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--border-radius);
+            margin-bottom: 1.5rem;
+            display: none;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        #metadata {
+            background-color: #f1f3f5;
+            border: 1px solid #e9ecef;
+            border-radius: var(--border-radius);
+            padding: 1rem;
+            white-space: pre-wrap;
+            overflow-x: auto;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9rem;
+        }
+
+        .file-info {
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+            color: #6c757d;
+        }
+
+        @media (max-width: 600px) {
+            .upload-section {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .custom-file-upload, #remove-exif {
+                margin-bottom: 1rem;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Image Metadata Viewer/Editor</h1>
+        <div class="upload-section">
+            <label for="file-input" class="custom-file-upload">
+                Choose Image
+            </label>
+            <input type="file" id="file-input" accept="image/*">
+            <button id="remove-exif">Remove EXIF</button>
+        </div>
+        <div id="file-path" class="file-info"></div>
+        <div id="saved-path" class="file-info"></div>
+        <div id="loading">Processing...</div>
+        <img id="image-display" src="" alt="Uploaded image">
+        <pre id="metadata"></pre>
+    </div>
+
+    <script>
+        $(document).ready(function() {
+            let originalFile;
+
+            function displayImage(imageData) {
+                $('#image-display').attr('src', 'data:image/png;base64,' + imageData).show();
+            }
+
+            function displayMetadata(metadata) {
+                $('#metadata').text(JSON.stringify(metadata, null, 2));
+            }
+
+            function displayFilePath(path) {
+                $('#file-path').text('Selected file: ' + path);
+            }
+
+            function displaySavedPath(path) {
+                $('#saved-path').text('Saved file: ' + path);
+            }
+
+            function saveFile(blob, fileName) {
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(a.href);
+            }
+
+            $('#file-input').change(function(e) {
+                originalFile = e.target.files[0];
+                var formData = new FormData();
+                formData.append('file', originalFile);
+
+                displayFilePath(originalFile.name);
+                $('#saved-path').text('');
+                $('#loading').show();
+
+                $.ajax({
+                    url: '/process',
+                    type: 'POST',
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function(data) {
+                        displayImage(data.image);
+                        displayMetadata(data.exif_data);
+                        $('#loading').hide();
+                    },
+                    error: function() {
+                        alert('Error processing image');
+                        $('#loading').hide();
+                    }
+                });
+            });
+
+            $('#remove-exif').click(function() {
+                if (!originalFile) {
+                    alert('Please select an image first');
+                    return;
+                }
+
+                var formData = new FormData();
+                formData.append('file', originalFile);
+
+                $('#loading').show();
+
+                $.ajax({
+                    url: '/remove_exif',
+                    type: 'POST',
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function(data) {
+                        displayImage(data.image);
+                        displayMetadata({});
+                        
+                        // Convert base64 to Blob
+                        const byteCharacters = atob(data.image);
+                        const byteNumbers = new Array(byteCharacters.length);
+                        for (let i = 0; i < byteCharacters.length; i++) {
+                            byteNumbers[i] = byteCharacters.charCodeAt(i);
+                        }
+                        const byteArray = new Uint8Array(byteNumbers);
+                        const blob = new Blob([byteArray], {type: originalFile.type});
+                        
+                        // Save the file
+                        saveFile(blob, data.filename);
+                        
+                        displaySavedPath(data.filename);
+                        $('#loading').hide();
+                        alert('EXIF data removed successfully');
+                    },
+                    error: function() {
+                        alert('Error removing EXIF data');
+                        $('#loading').hide();
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
